@@ -1,6 +1,6 @@
 // Programeles failai saugomi telefone: pirmiausia imama is tinklo (visada naujausia), be tinklo - is atminties
-const CACHE = 'katiline-v1';
-const FILES = ['./', './index.html', './app.js', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png',
+const CACHE = 'katiline-v2';
+const FILES = ['./', './index.html', './app.js', './chart.js', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png',
   'https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js'];
 
 self.addEventListener('install', e => {

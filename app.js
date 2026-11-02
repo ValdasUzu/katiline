@@ -1,5 +1,5 @@
 // Katiline programele: MQTT per WebSocket (TLS) prie debesu brokerio (EMQX Cloud Serverless).
-// Temos (ESP Katiline_ESP): <prefix>/<irenginys>/{state,meta,avail,stm} <- ; {set/<raktas>,cmd} ->
+// Temos (ESP Katiline_ESP): <prefix>/<irenginys>/{state,meta,avail,stm,hist} <- ; {set/<raktas>,cmd,hist/get} ->
 'use strict';
 
 const U = ['NON', 'HP', 'DUJ', 'KK'];
@@ -16,11 +16,17 @@ const P = {
 const $ = i => document.getElementById(i);
 const E = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const T = (v, d) => v === undefined || v === null ? '–' : (d ? Number(v).toFixed(d) : String(v));
-const R = (n, v) => `<div class="r"><span>${n}</span><span class="v">${v}</span></div>`;
+const R = (n, v, h) => h ? KChart.row(n, v, h) : `<div class="r"><span>${n}</span><span class="v">${v}</span></div>`;   // h - grafiko id (chart.js)
+
+const SH = (i, h) => { if (SH[i] !== h) { SH[i] = h; $(i).innerHTML = h; } };   // tik pasikeitus (kitaip dingsta paspaudimai)
 
 const KEY = 'katiline-app';
 let cfg = null, client = null, base = '';
 let st = null, meta = null, avail = '', stmLink = '', stateAt = 0, built = '', last = {}, authFailed = false;
+let connStart = 0, everConnected = false;
+const CONN_SLOW_MS = 15000;          // tiek nepavykus prisijungti - rodoma, kad patikrintu adresa
+const HIST_WAIT_MS = 10000;          // istorijos atsakymo laukiama tiek
+let histWait = null;                 // {id, res, rej, timer} - laukiamas istorijos atsakymas
 
 function loadCfg() {
   let c = null;
@@ -54,7 +60,10 @@ function showLogin(text) {
 function link(text, cls) { $('lnk').textContent = text; $('lnk').className = 'st ' + cls; }
 
 function updLink() {
-  if (!client || !client.connected) return link('Jungiamasi…', 'warn');
+  if (!client || !client.connected) {
+    if (!everConnected && Date.now() - connStart > CONN_SLOW_MS) return link('Nėra ryšio', 'off');
+    return link('Jungiamasi…', 'warn');
+  }
   if (avail === 'offline') return link('Katilinė neprisijungusi', 'off');
   if (stmLink === 'offline') return link('Valdiklis neatsako', 'off');
   if (avail === 'online') return link('Prisijungta', 'on');
@@ -64,6 +73,7 @@ function updLink() {
 function connect() {
   base = (cfg.prefix || 'katiline') + '/' + cfg.dev;
   st = null; meta = null; avail = ''; stmLink = ''; built = ''; last = {}; authFailed = false;
+  connStart = Date.now(); everConnected = false;
   $('set').className = 'mu'; $('set').textContent = 'laukiama katilinės…';
   $('login').classList.add('hide');
   $('app').classList.remove('hide');
@@ -77,7 +87,7 @@ function connect() {
     clean: true, keepalive: 30, reconnectPeriod: 5000, connectTimeout: 15000, protocolVersion: 4,
   });
   updLink();
-  client.on('connect', () => { client.subscribe(base + '/#', { qos: 0 }); updLink(); });
+  client.on('connect', () => { everConnected = true; client.subscribe(base + '/#', { qos: 0 }); updLink(); render(); });
   client.on('reconnect', updLink);
   client.on('close', updLink);
   client.on('offline', updLink);
@@ -96,12 +106,34 @@ function connect() {
     else if (t === 'meta') { try { meta = JSON.parse(s); } catch (e) { return; } }
     else if (t === 'avail') avail = s;
     else if (t === 'stm') stmLink = s;
+    else if (t === 'hist') { histReply(s); return; }
     else return;
     render();
   });
 }
 
+// 24 val. istorija (chart.js): <base>/hist/get "<id>:bv,ba" -> <base>/hist {"id":..,"t0":..,"s":{..}}
+function loadHist(keys) {
+  return new Promise((res, rej) => {
+    if (histWait) { clearTimeout(histWait.timer); histWait.rej('Atšaukta.'); histWait = null; }
+    if (!client || !client.connected) { rej('Nėra ryšio su brokeriu – pabandykite vėliau.'); return; }
+    const id = Math.random().toString(36).slice(2, 10);
+    histWait = { id, res, rej, timer: setTimeout(() => { histWait = null; rej('Katilinė neatsakė. Grafikams reikia ESP programos esp-0.5 ar naujesnės.'); }, HIST_WAIT_MS) };
+    client.publish(base + '/hist/get', id + ':' + keys, { qos: 0 });
+  });
+}
+function histReply(s) {
+  let j;
+  try { j = JSON.parse(s); } catch (e) { return; }
+  if (!histWait || !j || j.id !== histWait.id) return;          // kito telefono uzklausa
+  clearTimeout(histWait.timer);
+  const w = histWait;
+  histWait = null;
+  w.res(j);
+}
+
 function disconnect() {
+  KChart.close();
   if (client) client.end(true);
   client = null;
   forgetPass();
@@ -154,14 +186,14 @@ function save(k) {
 function render() {
   updLink();
   const s = st || {}, m = meta || {};
-  $('g0').innerHTML = R('Lauko temperatūra', T(s.lt) + ' °C') + R('Dirba', E(s.au || '–'))
-    + R('Padavimas / grįžtamas', T(s.vo) + ' / ' + T(s.vi) + ' °C') + R('Šilumos poreikis', T(s.ps)) + R('Eko lygis dabar', T(s.ek));
-  $('g1').innerHTML = R('K1', T(s.k1, 1) + ' °C <span class="mu">(nust. ' + T(s.pk1_tkset, 1) + ')</span>')
-    + R('K2', T(s.k2, 1) + ' °C <span class="mu">(nust. ' + T(s.pk2_tkset, 1) + ')</span>')
-    + R('K3 (grindys)', T(s.k3, 1) + ' °C <span class="mu">(nust. ' + T(s.pk3_tkset, 1) + ')</span>')
-    + R('Padavimas K1 / K2 / K3', T(s.p1) + ' / ' + T(s.p2) + ' / ' + T(s.p3) + ' °C');
-  $('g2').innerHTML = R('Viršus / apačia', T(s.bv) + ' / ' + T(s.ba) + ' °C') + R('Nustatyta', T(s.pbo_tkset) + ' °C')
-    + R('Šildomas', s.b1 ? 'iš HP' : s.b2 ? 'iš DUJ' : 'ne') + R('Heat Now', s.hn ? 'vykdomas' : '–') + R('Boilerio langas', T(s.eb));
+  SH('g0', R('Lauko temperatūra', T(s.lt) + ' °C', 'lt') + R('Dirba', E(s.au || '–'))
+    + R('Padavimas / grįžtamas', T(s.vo) + ' / ' + T(s.vi) + ' °C', 'vv') + R('Šilumos poreikis', T(s.ps)) + R('Eko lygis dabar', T(s.ek)));
+  SH('g1', R('K1', T(s.k1, 1) + ' °C <span class="mu">(nust. ' + T(s.pk1_tkset, 1) + ')</span>', 'k1')
+    + R('K2', T(s.k2, 1) + ' °C <span class="mu">(nust. ' + T(s.pk2_tkset, 1) + ')</span>', 'k2')
+    + R('K3 (grindys)', T(s.k3, 1) + ' °C <span class="mu">(nust. ' + T(s.pk3_tkset, 1) + ')</span>', 'k3')
+    + R('Padavimas K1 / K2 / K3', T(s.p1) + ' / ' + T(s.p2) + ' / ' + T(s.p3) + ' °C', 'pp'));
+  SH('g2', R('Viršus / apačia', T(s.bv) + ' / ' + T(s.ba) + ' °C', 'bo') + R('Nustatyta', T(s.pbo_tkset) + ' °C')
+    + R('Šildomas', s.b1 ? 'iš HP' : s.b2 ? 'iš DUJ' : 'ne') + R('Heat Now', s.hn ? 'vykdomas' : '–') + R('Boilerio langas', T(s.eb)));
   if (m.p && built !== Object.keys(m.p).join()) build(m.p);
   fill();
   const age = stateAt ? Math.round((Date.now() - stateAt) / 1000) : null;
@@ -169,7 +201,9 @@ function render() {
     + R('Katilinė (ESP)', avail === 'online' ? 'prisijungusi' : avail === 'offline' ? 'neprisijungusi' : '–')
     + R('Valdiklis (STM)', stmLink === 'online' ? 'veikia' : stmLink === 'offline' ? 'neatsako' : '–')
     + R('Duomenys gauti', age === null ? '–' : age < 5 ? 'ką tik' : 'prieš ' + age + ' s')
-    + R('Programos', E((m.esp || '–') + ' / STM ' + (m.stm || '–')));
+    + R('Programos', E((m.esp || '–') + ' / STM ' + (m.stm || '–')))
+    + (client && !client.connected && !everConnected && Date.now() - connStart > CONN_SLOW_MS
+      ? R('Klaida', 'Nepavyksta prisijungti prie ' + E(cfg.host) + ':' + E(cfg.port || 8084) + ' – patikrinkite brokerio adresą ir prievadą (EMQX – 8084)') : '');
 }
 
 $('lf').onsubmit = e => {
@@ -179,6 +213,10 @@ $('lf').onsubmit = e => {
     dev: $('l_dev').value.trim(), prefix: $('l_prefix').value.trim() || 'katiline', port: parseInt($('l_port').value, 10) || 8084,
     user: $('l_user').value.trim(), pass: $('l_pass').value,
   };
+  if (cfg.host === location.hostname || /(^|\.)github\.io$/i.test(cfg.host) || !/^[a-z0-9.-]+$/i.test(cfg.host)) {
+    $('lmsg').textContent = 'Brokeris – tai MQTT brokerio adresas (pvz. xxxx.ala.eu-central-1.emqxsl.com), ne šios programėlės adresas.';
+    return;
+  }
   saveCfg(cfg, $('l_rem').checked);
   connect();
 };
@@ -189,6 +227,7 @@ $('hn').onclick = () => {
   $('msg').textContent = 'Heat Now išsiųsta.';
 };
 setInterval(() => { if (client) render(); }, 5000);
+KChart.init(loadHist);
 
 cfg = loadCfg();
 if (cfg && cfg.host && cfg.dev && cfg.user && cfg.pass) connect(); else showLogin('');

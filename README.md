@@ -3,7 +3,8 @@
 Statinė svetainė (PWA): telefone įsidedama į pradžios ekraną kaip programėlė. Ji jungiasi prie debesų MQTT brokerio (EMQX Cloud Serverless) per šifruotą WebSocket ir rodo tą patį, ką ESP web puslapis:
 - būseną;
 - 14 nustatymų;
-- „Heat Now“ mygtuką.
+- „Heat Now“ mygtuką;
+- 24 val. temperatūrų grafikus: paspaudus eilutę su grafiko ženkleliu, pvz. „Viršus / apačia“.
 
 Serverio nereikia – svetainė laikoma GitHub Pages, o duomenys eina per brokerį.
 
@@ -35,7 +36,7 @@ Serverio nereikia – svetainė laikoma GitHub Pages, o duomenys eina per broker
 
 1. [github.com](https://github.com) sukurkite **viešą** saugyklą, pvz. `katiline`.
 2. Įkelkite šio aplanko failus. Tai galima padaryti per **Add file → Upload files** arba su git:
-   - `index.html`, `app.js`, `sw.js`, `manifest.webmanifest`;
+   - `index.html`, `app.js`, `chart.js`, `sw.js`, `manifest.webmanifest`;
    - `icon-192.png`, `icon-512.png`, `apple-touch-icon.png`.
 3. **Settings → Pages → Build and deployment:** Source *Deploy from a branch*, šaka `main`, aplankas `/ (root)` → **Save**.
 4. Po minutės svetainė veiks adresu `https://<vartotojas>.github.io/katiline/`.
@@ -64,3 +65,5 @@ Su „Prisiminti šiame telefone“ slaptažodis saugomas telefono naršyklėje.
 - Nustatymų ribas programėlė gauna iš ESP (`.../meta`). Už ribų esančių reikšmių neleidžia išsiųsti, o ESP ir STM jas tikrina dar kartą.
 - ESP tą patį nustatymą iš MQTT į STM perduoda ne dažniau kaip kas 60 s. Todėl pakartotinis pakeitimas gali atsinaujinti per minutę.
 - `mqtt.js` (5.10.1) įkeliamas iš jsDelivr CDN; telefone jis išsaugomas kartu su programėle.
+- Grafikams reikia ESP programos **esp-0.5** ar naujesnės. Istoriją kaupia ESP (24 val., 5 min vidurkiai). Programėlė jos paprašo per `.../hist/get`, o ESP atsako į `.../hist`. Vienas grafikas – apie 3 KB duomenų; kol grafikas atidarytas, jis atnaujinamas kas minutę.
+- `chart.js` taip pat naudojamas ESP web puslapyje (`Katiline_ESP/web_page.h`, `CHART_JS`). Pakeitus jį, reikia nukopijuoti ir ten.
