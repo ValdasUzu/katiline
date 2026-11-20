@@ -22,7 +22,7 @@ const SH = (i, h) => { if (SH[i] !== h) { SH[i] = h; $(i).innerHTML = h; } };   
 
 const KEY = 'katiline-app';
 let cfg = null, client = null, base = '';
-let st = null, meta = null, avail = '', stmLink = '', stateAt = 0, built = '', last = {}, authFailed = false;
+let st = null, meta = null, avail = '', stmLink = '', stateAt = 0, built = '', last = {}, authFailed = false, diag = null;
 let connStart = 0, everConnected = false;
 const CONN_SLOW_MS = 15000;          // tiek nepavykus prisijungti - rodoma, kad patikrintu adresa
 const HIST_WAIT_MS = 10000;          // istorijos atsakymo laukiama tiek
@@ -72,7 +72,7 @@ function updLink() {
 
 function connect() {
   base = (cfg.prefix || 'katiline') + '/' + cfg.dev;
-  st = null; meta = null; avail = ''; stmLink = ''; built = ''; last = {}; authFailed = false;
+  st = null; meta = null; avail = ''; stmLink = ''; built = ''; last = {}; authFailed = false; diag = null;
   connStart = Date.now(); everConnected = false;
   $('set').className = 'mu'; $('set').textContent = 'laukiama katilinės…';
   $('login').classList.add('hide');
@@ -106,6 +106,7 @@ function connect() {
     else if (t === 'meta') { try { meta = JSON.parse(s); } catch (e) { return; } }
     else if (t === 'avail') avail = s;
     else if (t === 'stm') stmLink = s;
+    else if (t === 'diag') { try { diag = JSON.parse(s); } catch (e) { return; } }   // ESP: WiFi signalas, IP (esp-0.7+)
     else if (t === 'hist') { histReply(s); return; }
     else return;
     render();
@@ -183,10 +184,12 @@ function save(k) {
   delete last[k];
 }
 
+const signal = r => r >= -55 ? 'puikus' : r >= -67 ? 'geras' : r >= -75 ? 'vidutinis' : r >= -85 ? 'silpnas' : 'labai silpnas';
+
 function render() {
   updLink();
   const s = st || {}, m = meta || {};
-  SH('g0', R('Lauko temperatūra', T(s.lt) + ' °C', 'lt') + R('Dirba', E(s.au || '–'))
+  SH('g0', R('Lauko temperatūra', T(s.lt) + ' °C', 'lt') + R('Dirba', E(s.au || '–'), 'au')
     + R('Padavimas / grįžtamas', T(s.vo) + ' / ' + T(s.vi) + ' °C', 'vv') + R('Šilumos poreikis', T(s.ps)) + R('Eko lygis dabar', T(s.ek)));
   SH('g1', R('K1', T(s.k1, 1) + ' °C <span class="mu">(nust. ' + T(s.pk1_tkset, 1) + ')</span>', 'k1')
     + R('K2', T(s.k2, 1) + ' °C <span class="mu">(nust. ' + T(s.pk2_tkset, 1) + ')</span>', 'k2')
@@ -200,6 +203,7 @@ function render() {
   $('dev').innerHTML = R('Įrenginys', E(cfg ? cfg.dev : '–')) + R('Brokeris', E(cfg ? cfg.host : '–'))
     + R('Katilinė (ESP)', avail === 'online' ? 'prisijungusi' : avail === 'offline' ? 'neprisijungusi' : '–')
     + R('Valdiklis (STM)', stmLink === 'online' ? 'veikia' : stmLink === 'offline' ? 'neatsako' : '–')
+    + R('WiFi signalas', diag && diag.rssi ? diag.rssi + ' dBm (' + signal(diag.rssi) + ')' : '–')
     + R('Duomenys gauti', age === null ? '–' : age < 5 ? 'ką tik' : 'prieš ' + age + ' s')
     + R('Programos', E((m.esp || '–') + ' / STM ' + (m.stm || '–')))
     + (client && !client.connected && !everConnected && Date.now() - connStart > CONN_SLOW_MS

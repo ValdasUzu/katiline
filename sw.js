@@ -1,5 +1,5 @@
 // Programeles failai saugomi telefone: pirmiausia imama is tinklo (visada naujausia), be tinklo - is atminties
-const CACHE = 'katiline-v2';
+const CACHE = 'katiline-v4';
 const FILES = ['./', './index.html', './app.js', './chart.js', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png',
   'https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js'];
 
@@ -15,7 +15,9 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
-  e.respondWith(fetch(e.request).then(r => {
+  // no-cache: narsykle patikrina serveri (GitHub Pages kitaip leidzia 10 min rodyti sena versija)
+  const req = e.request.mode === 'navigate' ? new Request(e.request.url, { cache: 'no-cache' }) : new Request(e.request, { cache: 'no-cache' });
+  e.respondWith(fetch(req).then(r => {
     const copy = r.clone();
     caches.open(CACHE).then(c => c.put(e.request, copy));
     return r;
